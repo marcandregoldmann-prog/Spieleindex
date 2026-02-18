@@ -1000,6 +1000,18 @@
             .stat-grid { grid-template-columns: repeat(4, 1fr); }
             .category-grid { grid-template-columns: repeat(4, 1fr); }
         }
+
+        /* ===== FORMULAR-VALIDIERUNG ===== */
+        .form-hint {
+            font-size: 12px;
+            margin-top: 5px;
+            display: none;
+        }
+        .form-hint.error { color: var(--accent-secondary); }
+        .form-input.input-error {
+            border-color: var(--accent-secondary) !important;
+            box-shadow: 0 0 0 3px var(--accent-secondary-glow) !important;
+        }
     </style>
 </head>
 <body>
@@ -1171,11 +1183,13 @@
             <div class="form-group">
                 <label>Google Maps Link (optional)</label>
                 <input type="url" class="form-input" id="fMapsLink" placeholder="https://maps.google.com/...">
+                <div class="form-hint error" id="mapsLinkHint">Ungültige URL – muss mit https:// oder http:// beginnen</div>
             </div>
 
             <div class="form-group">
                 <label>Webseite (optional)</label>
                 <input type="url" class="form-input" id="fWebsite" placeholder="https://...">
+                <div class="form-hint error" id="websiteHint">Ungültige URL – muss mit https:// oder http:// beginnen</div>
             </div>
 
             <div class="form-actions">
@@ -1443,7 +1457,7 @@ function createMarkerForLocation(loc) {
             <div class="popup-actions">
                 <button class="popup-btn" onclick="window.APP.showDetail('${loc.id}')">Details</button>
                 <button class="popup-btn" onclick="window.APP.editLocation('${loc.id}')">✏️</button>
-                ${loc.mapsLink ? `<a class="popup-btn" href="${loc.mapsLink}" target="_blank" rel="noopener" style="text-decoration:none">🗺️</a>` : ''}
+                ${sanitizeUrl(loc.mapsLink) ? `<a class="popup-btn" href="${sanitizeUrl(loc.mapsLink)}" target="_blank" rel="noopener" style="text-decoration:none">🗺️</a>` : ''}
             </div>
         </div>
     `);
@@ -1547,6 +1561,10 @@ function openModal(lat, lng, locData) {
     document.getElementById('fMapsLink').value = locData ? (locData.mapsLink || '') : '';
     document.getElementById('fWebsite').value = locData ? (locData.website || '') : '';
 
+    // Validierungsfehler zurücksetzen
+    clearUrlError('fMapsLink', 'mapsLinkHint');
+    clearUrlError('fWebsite', 'websiteHint');
+
     // Category
     selectedCategory = locData ? locData.category : (settings.defaultCategory || '');
     document.querySelectorAll('.cat-option').forEach(el => {
@@ -1614,6 +1632,20 @@ async function saveLocation(e) {
         return;
     }
 
+    const mapsLink = document.getElementById('fMapsLink').value.trim();
+    const website = document.getElementById('fWebsite').value.trim();
+
+    if (mapsLink && !isValidUrl(mapsLink)) {
+        showUrlError('fMapsLink', 'mapsLinkHint');
+        toast('❌ Ungültige Google Maps URL – bitte https:// oder http:// verwenden', 'error');
+        return;
+    }
+    if (website && !isValidUrl(website)) {
+        showUrlError('fWebsite', 'websiteHint');
+        toast('❌ Ungültige Webseiten-URL – bitte https:// oder http:// verwenden', 'error');
+        return;
+    }
+
     const ratingEl = document.querySelector('.star-rating input:checked');
     const isVisited = document.getElementById('statusVisited').classList.contains('active-visited');
     const isWishlist = document.getElementById('statusWishlist').classList.contains('active-wishlist');
@@ -1634,8 +1666,8 @@ async function saveLocation(e) {
         notes: document.getElementById('fNotes').value.trim() || null,
         tags: currentTags.length > 0 ? currentTags : null,
         photos: currentPhotos.length > 0 ? currentPhotos : null,
-        mapsLink: document.getElementById('fMapsLink').value.trim() || null,
-        website: document.getElementById('fWebsite').value.trim() || null,
+        mapsLink: mapsLink || null,
+        website: website || null,
         visitCount: existing ? (existing.visitCount || 1) : 1,
         visits: existing ? (existing.visits || []) : [],
         createdAt: existing ? existing.createdAt : new Date().toISOString(),
@@ -1811,8 +1843,8 @@ function showDetail(id) {
     if (loc.mapsLink || loc.website) {
         html += `<div class="detail-section"><h3>Links</h3>
             <div style="display:flex; flex-direction:column; gap:8px">
-                ${loc.mapsLink ? `<a href="${loc.mapsLink}" target="_blank" rel="noopener" class="card-action-btn" style="text-decoration:none; justify-content:center">🗺️ Google Maps öffnen</a>` : ''}
-                ${loc.website ? `<a href="${loc.website}" target="_blank" rel="noopener" class="card-action-btn" style="text-decoration:none; justify-content:center">🌐 Webseite öffnen</a>` : ''}
+                ${sanitizeUrl(loc.mapsLink) ? `<a href="${sanitizeUrl(loc.mapsLink)}" target="_blank" rel="noopener" class="card-action-btn" style="text-decoration:none; justify-content:center">🗺️ Google Maps öffnen</a>` : ''}
+                ${sanitizeUrl(loc.website) ? `<a href="${sanitizeUrl(loc.website)}" target="_blank" rel="noopener" class="card-action-btn" style="text-decoration:none; justify-content:center">🌐 Webseite öffnen</a>` : ''}
             </div>
         </div>`;
     }
@@ -2382,6 +2414,33 @@ function escHtml(str) {
     return div.innerHTML;
 }
 
+function isValidUrl(url) {
+    if (!url) return true; // Leer ist erlaubt (optional)
+    try {
+        const u = new URL(url);
+        return u.protocol === 'https:' || u.protocol === 'http:';
+    } catch {
+        return false;
+    }
+}
+
+function sanitizeUrl(url) {
+    if (!url) return '';
+    return isValidUrl(url) ? url : '';
+}
+
+function showUrlError(inputId, hintId) {
+    document.getElementById(inputId).classList.add('input-error');
+    const hint = document.getElementById(hintId);
+    hint.style.display = 'block';
+    document.getElementById(inputId).scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function clearUrlError(inputId, hintId) {
+    document.getElementById(inputId).classList.remove('input-error');
+    document.getElementById(hintId).style.display = 'none';
+}
+
 function formatDate(dateStr) {
     if (!dateStr) return '';
     try {
@@ -2400,7 +2459,13 @@ function getDistance(lat1, lon1, lat2, lon2) {
 }
 
 async function loadLocations() {
-    locations = await dbGetAll('locations');
+    try {
+        locations = await dbGetAll('locations');
+    } catch (err) {
+        console.error('Fehler beim Laden der Orte:', err);
+        locations = [];
+        throw err;
+    }
 }
 
 function flyToLocation(id) {
@@ -2559,6 +2624,10 @@ function initEvents() {
             document.getElementById('photoViewer').classList.remove('open');
         }
     });
+
+    // URL-Felder – Validierungsfehler beim Tippen zurücksetzen
+    document.getElementById('fMapsLink').addEventListener('input', () => clearUrlError('fMapsLink', 'mapsLinkHint'));
+    document.getElementById('fWebsite').addEventListener('input', () => clearUrlError('fWebsite', 'websiteHint'));
 }
 
 // ===== PUBLIC API =====
@@ -2578,14 +2647,34 @@ window.APP = {
 
 // ===== INIT =====
 async function init() {
-    await openDB();
-    await loadSettings();
-    await loadLocations();
-    initMap();
-    initEvents();
-    refreshMarkers();
+    try {
+        await openDB();
+        await loadSettings();
+        await loadLocations();
+        initMap();
+        initEvents();
+        refreshMarkers();
 
-    if (settings.autoLocate) locateUser();
+        if (settings.autoLocate) locateUser();
+    } catch (err) {
+        console.error('Initialisierungsfehler:', err);
+        document.body.innerHTML = `
+            <div style="display:flex;align-items:center;justify-content:center;height:100vh;padding:20px;text-align:center;font-family:Nunito,sans-serif;color:#e8f0f8;background:#0f1923">
+                <div>
+                    <div style="font-size:56px;margin-bottom:20px">❌</div>
+                    <h2 style="font-size:22px;margin-bottom:10px">Fehler beim Laden der App</h2>
+                    <p style="color:#8ba4be;margin-bottom:24px;line-height:1.6">
+                        Die Datenbank konnte nicht geöffnet werden.<br>
+                        Bitte lade die Seite neu oder überprüfe deine Browser-Einstellungen.
+                    </p>
+                    <button onclick="location.reload()" style="padding:14px 28px;background:#00d4aa;color:#fff;border:none;border-radius:10px;font-family:Nunito;font-weight:700;cursor:pointer;font-size:16px">
+                        🔄 Neu laden
+                    </button>
+                </div>
+            </div>
+        `;
+        return;
+    }
 
     // PWA Installationsbanner
     let deferredPrompt;
